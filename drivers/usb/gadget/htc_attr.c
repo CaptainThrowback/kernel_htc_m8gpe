@@ -410,12 +410,6 @@ int android_switch_function(unsigned func)
 		return 0;
 	}
 
-	
-	if (board_mfg_mode() == 2) {
-		printk("[USB] recovery mode only accept UMS or ADB + UMS combination\n");
-		func &= (1 << USB_FUNCTION_UMS) | (1 << USB_FUNCTION_ADB);
-	}
-
 	val = htc_usb_get_func_combine_value();
 
 	pr_info(" %u, before %u\n", func, val);
