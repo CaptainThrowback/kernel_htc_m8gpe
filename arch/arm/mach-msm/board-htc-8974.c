@@ -370,7 +370,7 @@ static struct android_usb_platform_data android_usb_pdata = {
 	.usb_diag_interface = "diag",
 	.fserial_init_string = "smd:modem,tty,tty:autobot,tty:serial,tty:autobot,tty:acm",
 
-	.nluns = 2,
+	.nluns = 1,
 };
 
 static struct platform_device android_usb_device = {
