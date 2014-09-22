@@ -1179,14 +1179,9 @@ static void setup_vendor_info(struct android_dev *dev) {
 		ANDROID_USB_ENABLE_FUNC(dev, conf, "diag");
 		ANDROID_USB_ENABLE_FUNC(dev, conf, "modem");
 		ANDROID_USB_ENABLE_FUNC(dev, conf, "rmnet");
-	} else if (board_mfg_mode() == 2) {
+	} else
+		ANDROID_USB_ENABLE_FUNC(dev, conf, "mtp");
 		ANDROID_USB_ENABLE_FUNC(dev, conf, "mass_storage");
-	} else {
-		if (!rom_stockui) {
-			ANDROID_USB_ENABLE_FUNC(dev, conf, "mtp");
-			ANDROID_USB_ENABLE_FUNC(dev, conf, "mass_storage");
-		}
-	}
 
 	product = get_product(dev, &conf->enabled_functions);
 	if (product && dev->pdata) {
