@@ -370,7 +370,7 @@ static struct android_usb_platform_data android_usb_pdata = {
 	.usb_diag_interface = "diag",
 	.fserial_init_string = "smd:modem,tty,tty:autobot,tty:serial,tty:autobot,tty:acm",
 
-	.nluns = 2,
+	.nluns = 1,
 };
 
 static struct platform_device android_usb_device = {
@@ -388,6 +388,8 @@ static void htc_8974_add_usb_devices(void)
 	if (board_mfg_mode() == 0) {
 		android_usb_pdata.nluns = 2;
 	}
+	else
+		android_usb_pdata.nluns = 1;
 #ifdef CONFIG_MACH_M8
 	android_usb_pdata.product_id	= 0x061A;
 #elif defined(CONFIG_MACH_DUMMY)
