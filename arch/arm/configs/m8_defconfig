@@ -562,6 +562,21 @@ CONFIG_NLS_ASCII=y
 CONFIG_NLS_ISO8859_1=y
 
 CONFIG_EXT4_FS_SECURITY=y
+
+# CIFS support for Samba
+CONFIG_CIFS=y
+CONFIG_CIFS_STATS=y
+# CONFIG_CIFS_STATS2 is not set
+# CONFIG_CIFS_WEAK_PW_HASH is not set
+# CONFIG_CIFS_UPCALL is not set
+# CONFIG_CIFS_XATTR is not set
+# CONFIG_CIFS_POSIX is not set
+# CONFIG_CIFS_DEBUG2 is not set
+# CONFIG_CIFS_DFS_UPCALL is not set
+# CONFIG_CIFS_FSCACHE is not set
+# CONFIG_CIFS_ACL is not set
+# CONFIG_CIFS_NFSD_EXPORT is not set
+
 #
 # HTC Debugging Features
 #
