@@ -1,5 +1,5 @@
 # Kernel Name
-CONFIG_LOCALVERSION="-BeyondStock-M8-GPE-1.0.1"
+CONFIG_LOCALVERSION="-BeyondStockᵀᴹ-M8-GPE-1.1.0"
 # CONFIG_LOCALVERSION_AUTO is not set
 
 # kexec-hardboot for MultiROM support
