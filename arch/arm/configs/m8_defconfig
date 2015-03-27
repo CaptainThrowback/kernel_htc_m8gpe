@@ -553,6 +553,14 @@ CONFIG_NLS_CODEPAGE_437=y
 CONFIG_NLS_ASCII=y
 CONFIG_NLS_ISO8859_1=y
 
+# F2FS support
+CONFIG_F2FS_FS=y
+CONFIG_F2FS_STAT_FS=y
+CONFIG_F2FS_FS_XATTR=y
+# CONFIG_F2FS_FS_POSIX_ACL is not set
+CONFIG_F2FS_FS_SECURITY=y
+# CONFIG_F2FS_CHECK_FS is not set
+
 # CIFS support for Samba
 CONFIG_CIFS=y
 CONFIG_CIFS_STATS=y
@@ -567,7 +575,6 @@ CONFIG_CIFS_STATS=y
 # CONFIG_CIFS_ACL is not set
 # CONFIG_CIFS_NFSD_EXPORT is not set
 
->>>>>>> e8ac391... Delete duplicate defconfig flags
 #
 # HTC Debugging Features
 #
