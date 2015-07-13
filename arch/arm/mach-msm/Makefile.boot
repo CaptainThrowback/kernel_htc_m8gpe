@@ -177,18 +177,6 @@ initrd_phys-$(CONFIG_ARCH_FSM9XXX)	:= 0x12000000
 
 # HTC dtbs
 ifeq ($(CONFIG_MACH_M8), y)
-	# Support for HTC MSM8974 GLU_U & GLU_WLJ
-	htc_dtb-$(CONFIG_ARCH_MSM8974)	+= msm8974-v2.0-1-glu-xa.dtb
-	htc_dtb-$(CONFIG_ARCH_MSM8974)	+= msm8974-v2.0-1-glu-xb.dtb
-	htc_dtb-$(CONFIG_ARCH_MSM8974)	+= msm8974-v2.2-glu-xb.dtb
-        htc_dtb-$(CONFIG_ARCH_MSM8974)	+= msm8974-v2.0-1-gluwlj-xa.dtb
-        htc_dtb-$(CONFIG_ARCH_MSM8974)	+= msm8974-v2.0-1-gluwlj-xb.dtb
-        htc_dtb-$(CONFIG_ARCH_MSM8974)	+= msm8974-v2.2-gluwlj-xb.dtb
-	htc_dtb-$(CONFIG_ARCH_MSM8974)  += msm8974-v2.0-1-glu2-xa.dtb
-	htc_dtb-$(CONFIG_ARCH_MSM8974)  += msm8974-v2.0-1-glu2wlj-xa.dtb
-	htc_dtb-$(CONFIG_ARCH_MSM8974)  += msm8974-v2.2-glu2-xa.dtb
-	htc_dtb-$(CONFIG_ARCH_MSM8974)  += msm8974-v2.2-glu2wlj-xa.dtb
-
 	# Support for HTC MSM8974 M8 (GSM)
 	htc_dtb-$(CONFIG_ARCH_MSM8974)  += msm8974pro-ab-pm8941-m8.dtb
 	htc_dtb-$(CONFIG_ARCH_MSM8974)  += msm8974pro-ab-pm8941-m8-xb.dtb
