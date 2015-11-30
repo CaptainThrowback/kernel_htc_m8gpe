@@ -1523,6 +1523,11 @@ config HTC_HEADSET_PMIC
 	help
 	  Provides support of HTC PMIC headset detection.
 
+config HTC_HEADSET_L_RMT_KEY_DESIGN
+	tristate "Google new feature"
+	depends on HTC_HEADSET_MGR
+	default n
+
 config HTC_HEADSET_8X60
 	tristate "HTC 8X60 headset detection driver"
 	depends on HTC_HEADSET_MGR
@@ -3140,6 +3145,14 @@ config KRAIT_REGULATOR
 	 regulators running in ganged mode inside the PMIC. Enable
 	 this option to support such configurations.
 
+config KERNEL_TEXT_MPU_PROT
+	bool "Enable xpu protection of kernel r/o sections"
+	help
+	  Enables xpu protection of kernel code and read-only data
+	  sections early in boot. Read access is permitted to
+	  all masters; Write access is only permited to the
+	  secure world.
+
 config HTC_POWER_DEBUG
 	bool "Support htc power debug feature"
 	help
@@ -3182,3 +3195,11 @@ config HTC_MONITOR_SUBSYS_SLEEP_TIME
     bool "Monitor the sleep time of sub-system"
     help
         Support to monitor the sleep time of sub-system
+
+config KERNEL_TEXT_MPU_PROT
+        bool "Enable xpu protection of kernel r/o sections"
+        help
+          Enables xpu protection of kernel code and read-only data
+          sections early in boot. Read access is permitted to
+          all masters; Write access is only permited to the
+          secure world.

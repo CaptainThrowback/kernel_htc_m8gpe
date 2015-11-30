@@ -255,6 +255,7 @@ static DEFINE_MUTEX(syn_mutex);
 static struct synaptics_ts_data *gl_ts;
 static uint16_t syn_panel_version;
 static uint8_t vk_press;
+static int probe_success = 0;
 
 static int i2c_syn_write_byte_data(struct i2c_client *client, uint16_t addr, uint8_t value);
 static int syn_pdt_scan(struct synaptics_ts_data *ts, int num_page);
@@ -3976,6 +3977,7 @@ static int __devinit synaptics_ts_probe(
 
 	if (syn_pdt_scan(ts, SYN_BL_PAGE) < 0) {
 		printk(KERN_ERR "[TP] TOUCH_ERR: PDT scan fail\n");
+		ret = -EIO;
 		goto err_init_failed;
 	}
 
@@ -3992,6 +3994,7 @@ static int __devinit synaptics_ts_probe(
 #endif
 		} else if (data & 0x40) {
 			pr_debug("[TP] TOUCH_ERR: synaptics probe: F01_data: %x touch controller stay in bootloader mode!\n", data);
+			ret = -EIO;
 			goto err_detect_failed;
 		} else
 			break;
@@ -4005,6 +4008,7 @@ static int __devinit synaptics_ts_probe(
 		pr_info("[TP] TOUCH_ERR: synaptics probe: touch controller doesn't enter UI mode! F01_data: %x\n", data);
 		if (syn_pdt_scan(ts, SYN_BL_PAGE) < 0) {
 			printk(KERN_ERR "[TP] TOUCH_ERR: PDT scan fail\n");
+			ret = -EIO;
 			goto err_init_failed;
 		}
 #ifndef CONFIG_OF
@@ -4015,6 +4019,7 @@ static int __devinit synaptics_ts_probe(
 				if (pdata->default_config == 0) {
 					printk(KERN_ERR "[TP] TOUCH_ERR: touch controller stays in bootloader mode "
 						"and recovery method doesn't enable\n");
+					ret = -EIO;
 					goto err_init_failed;
 				}
 				pdata++;
@@ -4068,6 +4073,7 @@ static int __devinit synaptics_ts_probe(
 
 	if (syn_pdt_scan(ts, SYN_MAX_PAGE) < 0) {
 		printk(KERN_ERR "[TP] TOUCH_ERR: PDT scan fail\n");
+		ret = -EIO;
 		goto err_init_failed;
 	}
 	if (board_mfg_mode() == MFG_MODE_OFFMODE_CHARGING ||
@@ -4084,6 +4090,7 @@ static int __devinit synaptics_ts_probe(
 	ts->finger_func_idx = 0x11;
 	if (syn_get_version(ts) < 0) {
 		printk(KERN_ERR "[TP] TOUCH_ERR: syn_get_version fail\n");
+		ret = -EIO;
 		goto err_init_failed;
 	}
 
@@ -4102,6 +4109,7 @@ static int __devinit synaptics_ts_probe(
 		pdata = client->dev.platform_data;
 		if (pdata == NULL) {
 			pr_info("[TP] pdata is NULL(dev.platform_data)\n");
+			ret = -ENOMEM;
 			goto err_get_platform_data_fail;
 		}
 	}
@@ -4132,6 +4140,7 @@ static int __devinit synaptics_ts_probe(
 
 		if (!pdata->packrat_number) {
 			printk(KERN_ERR "[TP] TOUCH_ERR: get null platform data\n");
+			ret = -ENODEV;
 			goto err_init_failed;
 		}
 
@@ -4208,6 +4217,7 @@ static int __devinit synaptics_ts_probe(
 #endif
 	if (syn_pdt_scan(ts, SYN_MAX_PAGE) < 0) {
 		printk(KERN_ERR "[TP] TOUCH_ERR: PDT scan fail\n");
+		ret = -EIO;
 		goto err_init_failed;
 	}
 
@@ -4220,6 +4230,7 @@ static int __devinit synaptics_ts_probe(
 #endif
 	if (syn_get_information(ts) < 0) {
 		printk(KERN_ERR "[TP] TOUCH_ERR: syn_get_information fail\n");
+		ret = -EIO;
 		goto err_syn_get_info_failed;
 	}
 
@@ -4275,16 +4286,20 @@ static int __devinit synaptics_ts_probe(
 	if (ts->psensor_detection) {
 		INIT_WORK(&ts->psensor_work, synaptics_ts_close_psensor_func);
 		ts->syn_psensor_wq = create_singlethread_workqueue("synaptics_psensor_wq");
-		if (!ts->syn_psensor_wq)
+		if (!ts->syn_psensor_wq) {
+			ret = -ENOMEM;
 			goto err_create_wq_failed;
+		}
 	}
 
 	if (ts->cover_setting[0])
 	{
 		INIT_WORK(&ts->cover_work, syn_set_cover_func);
 		ts->syn_cover_wq = create_singlethread_workqueue("synaptics_cover_wq");
-		if (!ts->syn_cover_wq)
+		if (!ts->syn_cover_wq) {
+			ret = -ENOMEM;
 			goto err_create_wq_failed;
+		}
 	}
 
 	ret = synaptics_input_register(ts);
@@ -4328,8 +4343,10 @@ static int __devinit synaptics_ts_probe(
 
 	if (!ts->use_irq) {
 		ts->syn_wq = create_singlethread_workqueue("synaptics_wq");
-		if (!ts->syn_wq)
+		if (!ts->syn_wq) {
+			ret = -ENOMEM;
 			goto err_create_wq_failed;
+		}
 
 		INIT_WORK(&ts->work, synaptics_ts_work_func);
 
@@ -4387,6 +4404,7 @@ static int __devinit synaptics_ts_probe(
     init_completion(&ts->st_powerdown);
     init_completion(&ts->st_irq_processed);
 #endif
+	probe_success = 1;
 	return 0;
 
 #ifdef SYN_CABLE_CONTROL
@@ -4425,6 +4443,7 @@ err_detect_failed:
 
 err_alloc_data_failed:
 err_check_functionality_failed:
+	probe_success = 0;
 	return ret;
 }
 
@@ -4457,6 +4476,7 @@ static int __devexit synaptics_ts_remove(struct i2c_client *client)
 	if (ts->address_table != NULL)
 		kfree(ts->address_table);
 	kfree(ts);
+	probe_success = 0;
 	return 0;
 }
 
@@ -4465,6 +4485,11 @@ static int synaptics_ts_suspend(struct device *dev)
 	int ret;
 	uint16_t reg = 0;
 	struct synaptics_ts_data *ts = dev_get_drvdata(dev);
+
+	if (!probe_success) {
+		pr_info("[TP] %s: Driver not probe\n", __func__);
+		return 0;
+	}
 
 	if(ts->suspended)
 	{
@@ -4620,6 +4645,12 @@ static int synaptics_ts_resume(struct device *dev)
 {
 	int ret, i;
 	struct synaptics_ts_data *ts = dev_get_drvdata(dev);
+
+	if (!probe_success) {
+		pr_info("[TP] %s: Driver not probe\n", __func__);
+		return 0;
+	}
+
 	pr_info("[TP] %s: enter. FW:%d;%d;%x;%x\n",
 	__func__, ts->package_id, ts->packrat_number, syn_panel_version, ts->config_version);
 

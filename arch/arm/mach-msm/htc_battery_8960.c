@@ -46,7 +46,6 @@
 #include <mach/htc_charger.h>
 #include <mach/htc_battery_cell.h>
 
-
 #define HTC_BATT_CHG_DIS_BIT_EOC	(1)
 #define HTC_BATT_CHG_DIS_BIT_ID		(1<<1)
 #define HTC_BATT_CHG_DIS_BIT_TMP	(1<<2)
@@ -89,6 +88,7 @@ static int charger_dis_temp_fault;
 static int charger_under_rating;
 static int charger_safety_timeout;
 static int batt_full_eoc_stop;
+static int is_irq_storm_happen;
 static enum ftm_charger_control_flag ftm_charger_control_flag;
 
 static int chg_limit_reason;
@@ -126,6 +126,7 @@ static int context_state;
 #define HTC_EXT_CHG_UNDER_RATING		(1<<1)
 #define HTC_EXT_CHG_SAFTY_TIMEOUT		(1<<2)
 #define HTC_EXT_CHG_FULL_EOC_STOP		(1<<3)
+#define HTC_EXT_CHG_IRQ_STORM			(1<<4)
 
 #ifdef CONFIG_ARCH_MSM8X60_LTE
 #endif
@@ -2173,6 +2174,9 @@ static void batt_level_adjust(unsigned long time_since_last_update_ms)
 		htc_batt_get_battery_ui_soc(&htc_batt_info.rep.level);
 
 	
+	store_level = htc_batt_info.rep.level - htc_batt_info.rep.level_raw;
+
+	
 	htc_batt_store_battery_ui_soc(htc_batt_info.rep.level);
 
 	if (htc_batt_info.rep.level != prev_level)
@@ -2242,7 +2246,6 @@ static void batt_update_limited_charge(void)
 			
 		}
 	} else {
-#if !(defined(CONFIG_MACH_DUMMY))
 		
 		if ((!(chg_limit_reason & HTC_BATT_CHG_LIMIT_BIT_THRML)) &&
 				htc_batt_info.rep.batt_temp > 390) {
@@ -2253,9 +2256,6 @@ static void batt_update_limited_charge(void)
 		} else {
 			
 		}
-#else
-		set_limit_charge_with_reason(false, HTC_BATT_CHG_LIMIT_BIT_THRML);
-#endif
 	}
 }
 
@@ -2353,6 +2353,12 @@ void update_htc_extension_state(void)
 		htc_batt_info.htc_extension |= HTC_EXT_CHG_FULL_EOC_STOP;
 	else
 		htc_batt_info.htc_extension &= ~HTC_EXT_CHG_FULL_EOC_STOP;
+	
+	if (is_irq_storm_happen){
+		htc_batt_info.htc_extension |= HTC_EXT_CHG_IRQ_STORM;
+	}
+	else
+		htc_batt_info.htc_extension &= ~HTC_EXT_CHG_IRQ_STORM;
 }
 
 static void batt_worker(struct work_struct *work)
@@ -2449,6 +2455,12 @@ static void batt_worker(struct work_struct *work)
 			htc_ext_5v_output_old = htc_ext_5v_output_now;
 		}
 		pr_info("[BATT] enable_5v_output: %d\n", htc_ext_5v_output_now);
+	}
+
+	
+	if(htc_batt_info.icharger && htc_batt_info.icharger->cable_irq_count && htc_batt_info.rep.charging_source > 0)
+	{
+		htc_batt_info.icharger->cable_irq_count(&is_irq_storm_happen, time_since_last_update_ms);
 	}
 
 	
@@ -3042,9 +3054,27 @@ static void usb_overheat_monitor(struct work_struct *work)
 }
 #endif
 
+static int reboot_consistent_command_call(struct notifier_block *nb,
+		unsigned long event, void *data)
+{
+	if ((event != SYS_RESTART) && (event != SYS_POWER_OFF))
+		goto end;
+
+	BATT_LOG("%s: save consistent data", __func__);
+        htc_batt_trigger_store_battery_data(1);
+
+end:
+	return NOTIFY_DONE;
+}
+
+
+static struct notifier_block reboot_consistent_command = {
+	.notifier_call = reboot_consistent_command_call,
+};
+
 static int htc_battery_probe(struct platform_device *pdev)
 {
-	int i, rc = 0;
+	int i, rc = 0, ret;
 	struct htc_battery_platform_data *pdata = pdev->dev.platform_data;
 	struct htc_battery_core *htc_battery_core_ptr;
 
@@ -3236,6 +3266,13 @@ static int htc_battery_probe(struct platform_device *pdev)
 	early_suspend.resume = htc_battery_late_resume;
 	register_early_suspend(&early_suspend);
 #endif
+
+	
+	ret = register_reboot_notifier(&reboot_consistent_command);
+	if (ret) {
+		BATT_ERR("can't register reboot notifier, error = %d\n", ret);
+		return ret;
+	}
 
 htc_batt_timer.time_out = BATT_TIMER_UPDATE_TIME;
 batt_set_check_timer(htc_batt_timer.time_out);

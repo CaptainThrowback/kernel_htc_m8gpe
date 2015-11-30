@@ -9,23 +9,15 @@
 #include <mach/debug_display.h>
 #include "../../../../drivers/video/msm/mdss/mdss_dsi.h"
 
-#define PANEL_ID_DLX_SHARP_RENESAS	0
-#define PANEL_ID_B2_SHARP_NT35595	1
-#define PANEL_ID_B2_SHARP_NT35695	2
-#define PANEL_ID_B2_LG_NT35695		3
-#define PANEL_ID_B2_LG_NT35595		4
-
 /* HTC: dsi_power_data overwrite the role of dsi_drv_cm_data
    in mdss_dsi_ctrl_pdata structure */
 struct dsi_power_data {
 	uint32_t sysrev;         /* system revision info */
 	struct regulator *vddio; /* 1.8v */
 	struct regulator *vdda;  /* 1.2v */
+	struct regulator *vddpll; /* mipi 1.8v */
+	struct regulator *vlcm3v; /* 3v */
 
-	struct regulator *vlcmio; /* 1.8v */
-	int lcmio;
-	int lcmp5v;
-	int lcmn5v;
 	int lcm_bl_en;
 };
 
@@ -47,7 +39,7 @@ struct i2c_dev_info {
 	{.dev_addr = addr >> 1, .client = NULL}
 
 static struct i2c_dev_info device_addresses[] = {
-	I2C_DEV_INFO(0x7C)
+	I2C_DEV_INFO(0x70)
 };
 
 static inline int platform_write_i2c_block(struct i2c_adapter *i2c_bus
@@ -166,7 +158,7 @@ static struct i2c_driver tps_65132_tx_i2c_driver = {
 	.command = NULL,
 };
 
-static int htc_b2_regulator_init(struct platform_device *pdev)
+static int htc_a3_regulator_init(struct platform_device *pdev)
 {
 	int ret = 0;
 	struct mdss_dsi_ctrl_pdata *ctrl_pdata = NULL;
@@ -200,6 +192,21 @@ static int htc_b2_regulator_init(struct platform_device *pdev)
 		return PTR_ERR(pwrdata->vddio);
 	}
 
+	pwrdata->vlcm3v = devm_regulator_get(&pdev->dev, "vdd");//pm8226_l23
+	if (IS_ERR(pwrdata->vlcm3v)) {
+		pr_err("%s: could not get vdd reg, rc=%ld\n",
+			__func__, PTR_ERR(pwrdata->vlcm3v));
+		return PTR_ERR(pwrdata->vlcm3v);
+	}
+
+	pwrdata->vddpll = devm_regulator_get(&pdev->dev, "vddpll");
+	if (IS_ERR(pwrdata->vddpll)) {
+		pr_err("%s: could not get vddpll reg, rc=%ld\n",
+			__func__, PTR_ERR(pwrdata->vddpll));
+		return PTR_ERR(pwrdata->vddpll);
+	}
+
+/*
 	ret = regulator_set_voltage(pwrdata->vddio, 1800000,
 	        1800000);
 	if (ret) {
@@ -207,7 +214,7 @@ static int htc_b2_regulator_init(struct platform_device *pdev)
 			__func__, ret);
 		return ret;
 	}
-
+*/
 	pwrdata->vdda = devm_regulator_get(&pdev->dev, "vdda");
 	if (IS_ERR(pwrdata->vdda)) {
 		pr_err("%s: could not get vdda vreg, rc=%ld\n",
@@ -223,22 +230,17 @@ static int htc_b2_regulator_init(struct platform_device *pdev)
 	    return ret;
 	}
 
-	pwrdata->lcmio = of_get_named_gpio(pdev->dev.of_node,
-						"htc,lcm_1v8-gpio", 0);
-	pwrdata->lcmp5v = of_get_named_gpio(pdev->dev.of_node,
-						"htc,lcm_p5v-gpio", 0);
-	pwrdata->lcmn5v = of_get_named_gpio(pdev->dev.of_node,
-						"htc,lcm_n5v-gpio", 0);
-	pwrdata->vlcmio = devm_regulator_get(&pdev->dev, "vlcmio");
+	ret = regulator_set_voltage(pwrdata->vlcm3v, 3000000,
+	        3000000);
+	if (ret) {
+		pr_err("%s: set voltage failed on vlcm3v vreg, rc=%d\n",
+			__func__, ret);
+		return ret;
+	}
 
 	pwrdata->lcm_bl_en = of_get_named_gpio(pdev->dev.of_node,
 						"htc,lcm_bl_en-gpio", 0);
 
-	if (IS_ERR(pwrdata->vlcmio)) {
-		pr_err("%s: could not get vlcmio reg, rc=%ld\n",
-			__func__, PTR_ERR(pwrdata->vlcmio));
-		return PTR_ERR(pwrdata->vlcmio);
-	}
 	ret = i2c_add_driver(&tps_65132_tx_i2c_driver);
 	if (ret < 0) {
 		pr_err("[DISP] %s: FAILED to add i2c_add_driver ret=%x\n",
@@ -247,7 +249,7 @@ static int htc_b2_regulator_init(struct platform_device *pdev)
 	return 0;
 }
 
-static int htc_b2_regulator_deinit(struct platform_device *pdev)
+static int htc_a3_regulator_deinit(struct platform_device *pdev)
 {
 	/* devm_regulator() will automatically free regulators
 	   while dev detach. */
@@ -255,19 +257,7 @@ static int htc_b2_regulator_deinit(struct platform_device *pdev)
 	return 0;
 }
 
-bool htc_b2_renesas_panel_check(int panelID)
-{
-	switch (panelID) {
-		case PANEL_ID_DLX_SHARP_RENESAS:
-			return true;
-			break;
-		default:
-			return false;
-			break;
-	}
-}
-
-int htc_b2_panel_reset(struct mdss_panel_data *pdata, int enable)
+int htc_a3_panel_reset(struct mdss_panel_data *pdata, int enable)
 {
 	struct mdss_dsi_ctrl_pdata *ctrl_pdata = NULL;
 
@@ -298,51 +288,124 @@ int htc_b2_panel_reset(struct mdss_panel_data *pdata, int enable)
 			return 0;
 		}
 
-		if (!htc_b2_renesas_panel_check(pdata->panel_info.panel_id)) {
-			gpio_set_value((ctrl_pdata->rst_gpio), 1);
-			usleep_range(1000,1500);
-			gpio_set_value((ctrl_pdata->rst_gpio), 0);
-			usleep_range(1000,1500);
-			gpio_set_value((ctrl_pdata->rst_gpio), 1);
-			usleep_range(10000,10500);
-		} else {
-			gpio_set_value((ctrl_pdata->rst_gpio), 0);
-			usleep_range(1000,1500);
-			gpio_set_value((ctrl_pdata->rst_gpio), 1);
-			usleep_range(3000,3500);
-		}
+		gpio_set_value((ctrl_pdata->rst_gpio), 1);
+		usleep_range(2000,2500);
+		gpio_set_value((ctrl_pdata->rst_gpio), 0);
+		usleep_range(100,150);
+		gpio_set_value((ctrl_pdata->rst_gpio), 1);
 
-		if (gpio_is_valid(ctrl_pdata->disp_en_gpio))
-			gpio_set_value((ctrl_pdata->disp_en_gpio), 1);
-		if (ctrl_pdata->ctrl_state & CTRL_STATE_PANEL_INIT) {
-			pr_debug("%s: Panel Not properly turned OFF\n",
-						__func__);
-			ctrl_pdata->ctrl_state &= ~CTRL_STATE_PANEL_INIT;
-			pr_debug("%s: Reset panel done\n", __func__);
-		}
+#if defined(CONFIG_MACH_A3_CL)
+		msleep(20);
+#else
+		msleep(25);
+#endif
+
 	} else {
 		gpio_set_value((ctrl_pdata->rst_gpio), 0);
-		if (gpio_is_valid(ctrl_pdata->disp_en_gpio))
-			gpio_set_value((ctrl_pdata->disp_en_gpio), 0);
 	}
 
 	return 0;
 }
 
-bool htc_b2_lg_panel_check(int panelID)
+#if defined(CONFIG_MACH_A3_CL)
+extern u32 mdss_dsi_panel_cmd_read(struct mdss_dsi_ctrl_pdata *ctrl, char cmd0,
+		char cmd1, void (*fxn)(int), char *rbuf, int len);
+static int len;
+static u32 id3 = 0;
+static bool readid3 = true;
+static void pwr_cb(int data) {
+	len = data;
+}
+
+static u32 read_id3(struct mdss_dsi_ctrl_pdata *ctrl) {
+	char buf[4];
+	u32 retval;
+
+	mdss_dsi_panel_cmd_read(ctrl, 0xDC, 0x00, pwr_cb, buf, 0);
+	retval = *(u32*)buf;
+	pr_info("[DISP] read_id3=%x\n", retval);
+
+	return (retval&0xff);
+}
+#endif
+
+static void htc_a3_bkl_en(struct mdss_panel_data *pdata, int enable)
 {
-	switch (panelID) {
-		case PANEL_ID_B2_LG_NT35695:
-		case PANEL_ID_B2_LG_NT35595:
-			return true;
-			break;
-		default:
-			return false;
-			break;
+	static int en = 1;
+	struct mdss_dsi_ctrl_pdata *ctrl_pdata = NULL;
+	struct dsi_power_data *pwrdata = NULL;
+	u8 data = 0x00;
+
+	if(en == enable)
+		return;
+	en = enable;
+
+	PR_DISP_INFO("%s: en=%d\n", __func__, enable);
+	if (pdata == NULL) {
+		pr_err("%s: Invalid input data\n", __func__);
+		return;
+	}
+
+	ctrl_pdata = container_of(pdata, struct mdss_dsi_ctrl_pdata,
+	                        panel_data);
+	pwrdata = ctrl_pdata->dsi_pwrctrl_data;
+
+	if(enable) {
+#if defined(CONFIG_MACH_A3_CL)
+		if (readid3) {
+			readid3 = false;
+			id3 = read_id3(ctrl_pdata)/16;
+		}
+
+		switch(id3) {
+			case 0x02:
+				msleep(500);
+				pr_info("[DISP] htc_a3_bkl_en delay 0.5s id3=2xh\n");
+				break;
+			case 0x04:
+				msleep(1000);
+				pr_info("[DISP] htc_a3_bkl_en delay 1.0s id3=4xh\n");
+				break;
+			case 0x08:
+				msleep(1500);
+				pr_info("[DISP] htc_a3_bkl_en delay 1.5s id3=8xh\n");
+				break;
+			default:
+				pr_info("[DISP] htc_a3_bkl_en delay 0s id3=0xh\n");
+		}
+#endif
+
+		gpio_set_value(pwrdata->lcm_bl_en, 1);
+
+		/* Output Configuration */
+		data = 0xC1;
+		platform_write_i2c_block(i2c_bus_adapter, 0x70, 0x10, 1, &data);
+
+		/* Control B Full-Scale Current */
+		data=0x13;
+		platform_write_i2c_block(i2c_bus_adapter, 0x70, 0x19, 1, &data);
+
+		/* Control B PWM */
+		data=0xC2;
+		platform_write_i2c_block(i2c_bus_adapter, 0x70, 0x14, 1, &data);
+
+		/* Control B Zone Target 4 */
+		data=0xFF;
+		platform_write_i2c_block(i2c_bus_adapter, 0x70, 0x79, 1, &data);
+
+		/* Control Enable */
+		data=0xFA;
+		platform_write_i2c_block(i2c_bus_adapter, 0x70, 0x1D, 1, &data);
+
+		/* Feedback Enable */
+		data=0x01;
+		platform_write_i2c_block(i2c_bus_adapter, 0x70, 0x1C, 1, &data);
+	} else {
+		gpio_set_value(pwrdata->lcm_bl_en, 0);
 	}
 }
 
-static int htc_b2_panel_power_on(struct mdss_panel_data *pdata, int enable)
+static int htc_a3_panel_power_on(struct mdss_panel_data *pdata, int enable)
 {
 	int ret;
 
@@ -365,32 +428,16 @@ static int htc_b2_panel_power_on(struct mdss_panel_data *pdata, int enable)
 	}
 
 	if (enable) {
-		if (gpio_is_valid(pwrdata->lcmio)) {
-			/* EVM */
-			gpio_set_value(pwrdata->lcmio, 1);
-		} else {
-			ret = regulator_enable(pwrdata->vlcmio);
-			if (ret) {
-				pr_err("%s: Failed to enable regulator.\n",
-					__func__);
-				return ret;
-			}
-		}
-
-		usleep_range(1000,1500);
-		gpio_set_value(pwrdata->lcmp5v, 1);
-
-		if (htc_b2_lg_panel_check(pdata->panel_info.panel_id)){
-			u8 avdd_level = 0x11; //set to +-5.7V
-			platform_write_i2c_block(i2c_bus_adapter,0x7C,0x00, 0x01, &avdd_level);
-			platform_write_i2c_block(i2c_bus_adapter,0x7C,0x01, 0x01, &avdd_level);
-		}
-		usleep_range(1000,1500);
-		gpio_set_value(pwrdata->lcmn5v, 1);
-
 		ret = regulator_set_optimum_mode(pwrdata->vddio, 100000);
 		if (ret < 0) {
 			pr_err("%s: vddio set opt mode failed.\n",
+				__func__);
+			return ret;
+		}
+
+		ret = regulator_set_optimum_mode(pwrdata->vddpll, 100000);
+		if (ret < 0) {
+			pr_err("%s: vddpll set opt mode failed.\n",
 				__func__);
 			return ret;
 		}
@@ -402,28 +449,54 @@ static int htc_b2_panel_power_on(struct mdss_panel_data *pdata, int enable)
 			return ret;
 		}
 
+		ret = regulator_set_optimum_mode(pwrdata->vlcm3v, 100000);
+		if (ret < 0) {
+			pr_err("%s: vlcm3v set opt mode failed.\n",
+				__func__);
+			return ret;
+		}
+		usleep_range(12000,12500);
+
+		/*enable 1v8*/
 		ret = regulator_enable(pwrdata->vddio);
 		if (ret) {
 			pr_err("%s: Failed to enable regulator.\n",
 				__func__);
 			return ret;
 		}
+		usleep_range(1000,1500);
 
-		ret = regulator_enable(pwrdata->vdda);
+		ret = regulator_enable(pwrdata->vlcm3v);
+		if (ret) {
+			pr_err("%s: Failed to enable regulator : vlcm3v.\n",
+				__func__);
+			return ret;
+		}
+		usleep_range(1000,1500);
+
+		ret = regulator_enable(pwrdata->vddpll);
 		if (ret) {
 			pr_err("%s: Failed to enable regulator.\n",
 				__func__);
 			return ret;
 		}
-		usleep_range(13000,13500);
+		usleep_range(1000,1500);
 
-		gpio_set_value(pwrdata->lcm_bl_en, 1);
+		/*ENABLE 1V2*/
+		ret = regulator_enable(pwrdata->vdda);
+		if (ret) {
+			pr_err("%s: Failed to enable regulator : vdda.\n",
+				__func__);
+			return ret;
+		}
+
+		msleep(20);
 	} else {
-		gpio_set_value(pwrdata->lcm_bl_en, 0);
 
-		if (htc_b2_renesas_panel_check(pdata->panel_info.panel_id))
-			htc_b2_panel_reset(pdata, 0);
+		usleep_range(2000,2500);
+		gpio_set_value((ctrl_pdata->rst_gpio), 0);
 
+		/*disable 1v2*/
 		ret = regulator_disable(pwrdata->vdda);
 		if (ret) {
 			pr_err("%s: Failed to disable regulator.\n",
@@ -431,12 +504,29 @@ static int htc_b2_panel_power_on(struct mdss_panel_data *pdata, int enable)
 			return ret;
 		}
 
-		ret = regulator_disable(pwrdata->vddio);
+		ret = regulator_disable(pwrdata->vlcm3v);
+		if (ret) {
+			pr_err("%s: Failed to disable regulator : vlcm3v.\n",
+				__func__);
+			return ret;
+		}
+
+		ret = regulator_disable(pwrdata->vddpll);
 		if (ret) {
 			pr_err("%s: Failed to disable regulator.\n",
 				__func__);
 			return ret;
 		}
+
+		/*disable 1v8*/
+		ret = regulator_disable(pwrdata->vddio);
+		if (ret) {
+			pr_err("%s: Failed to disable regulator : vddio.\n",
+				__func__);
+			return ret;
+		}
+
+		usleep_range(2000,2500);
 
 		ret = regulator_set_optimum_mode(pwrdata->vddio, 100);
 		if (ret < 0) {
@@ -444,33 +534,27 @@ static int htc_b2_panel_power_on(struct mdss_panel_data *pdata, int enable)
 				__func__);
 			return ret;
 		}
+
+		ret = regulator_set_optimum_mode(pwrdata->vlcm3v, 100);
+		if (ret < 0) {
+			pr_err("%s: vlcm3v_vreg set opt mode failed.\n",
+				__func__);
+			return ret;
+		}
+
+		ret = regulator_set_optimum_mode(pwrdata->vddpll, 100);
+		if (ret < 0) {
+			pr_err("%s: vddpll_vreg set opt mode failed.\n",
+				__func__);
+			return ret;
+		}
+
 		ret = regulator_set_optimum_mode(pwrdata->vdda, 100);
 		if (ret < 0) {
 			pr_err("%s: vdda_vreg set opt mode failed.\n",
 				__func__);
 			return ret;
 		}
-		gpio_set_value(pwrdata->lcmn5v, 0);
-		usleep_range(1000,1500);
-		gpio_set_value(pwrdata->lcmp5v, 0);
-
-		if (!htc_b2_renesas_panel_check(pdata->panel_info.panel_id)){
-			usleep_range(1000,1500);
-			htc_b2_panel_reset(pdata, 0);
-		}
-
-		if (gpio_is_valid(pwrdata->lcmio)) {
-			gpio_set_value(pwrdata->lcmio, 0);
-		} else {
-			ret = regulator_disable(pwrdata->vlcmio);
-			if (ret) {
-				pr_err("%s: Failed to enable regulator.\n",
-					__func__);
-				return ret;
-			}
-		}
-		/* Delay 20ms to avoid panel issue when fast power on\off */
-		usleep_range(20000,20500);
 	}
 	PR_DISP_INFO("%s: en=%d done\n", __func__, enable);
 
@@ -478,10 +562,11 @@ static int htc_b2_panel_power_on(struct mdss_panel_data *pdata, int enable)
 }
 
 static struct mdss_dsi_pwrctrl dsi_pwrctrl = {
-	.dsi_regulator_init = htc_b2_regulator_init,
-	.dsi_regulator_deinit = htc_b2_regulator_deinit,
-	.dsi_power_on = htc_b2_panel_power_on,
-	.dsi_panel_reset = htc_b2_panel_reset,
+	.dsi_regulator_init = htc_a3_regulator_init,
+	.dsi_regulator_deinit = htc_a3_regulator_deinit,
+	.dsi_power_on = htc_a3_panel_power_on,
+	.dsi_panel_reset = htc_a3_panel_reset,
+	.bkl_config = htc_a3_bkl_en,
 };
 
 static struct platform_device dsi_pwrctrl_device = {
@@ -490,7 +575,7 @@ static struct platform_device dsi_pwrctrl_device = {
 	.dev.platform_data = &dsi_pwrctrl,
 };
 
-int __init htc_8974_dsi_panel_power_register(void)
+int __init htc_8226_dsi_panel_power_register(void)
 {
 	pr_info("%s#%d\n", __func__, __LINE__);
 	platform_device_register(&dsi_pwrctrl_device);

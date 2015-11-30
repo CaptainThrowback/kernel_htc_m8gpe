@@ -3576,7 +3576,7 @@ static int taiko_codec_enable_anc(struct snd_soc_dapm_widget *w,
 {
 	struct snd_soc_codec *codec = w->codec;
 	const char *filename;
-	const struct firmware *fw;
+	const struct firmware *fw = NULL; 
 	int i;
 	int ret =0;
 	int num_anc_slots;
@@ -3592,7 +3592,7 @@ static int taiko_codec_enable_anc(struct snd_soc_dapm_widget *w,
 	const void *data;
 
 
-	if (taiko && taiko->anc_func == 0)
+	if ((taiko == NULL) || (taiko->anc_func == 0)) 
 		return 0;
 
 	switch (event) {
@@ -3637,7 +3637,8 @@ static int taiko_codec_enable_anc(struct snd_soc_dapm_widget *w,
 
 		if (taiko == NULL) {
 			dev_err(codec->dev, "taiko is NULL\n");
-			release_firmware(fw);
+			if(fw) 
+				release_firmware(fw);
 			return -EINVAL;
 		}
 		if (taiko->anc_slot >= num_anc_slots) {
@@ -3681,7 +3682,6 @@ static int taiko_codec_enable_anc(struct snd_soc_dapm_widget *w,
 			snd_soc_write(codec, reg, (old_val & ~mask) |
 				(val & mask));
 		}
-		release_firmware(fw);
 		if (!hwdep_cal)
 			release_firmware(fw);
 		break;
@@ -5493,7 +5493,7 @@ static int taiko_codec_enable_slimvi_feedback(struct snd_soc_dapm_widget *w,
 	struct wcd9xxx *core = NULL;
 	struct snd_soc_codec *codec = NULL;
 	struct taiko_priv *taiko_p = NULL;
-	u32 ret = 0;
+	int ret = 0;
 	struct wcd9xxx_codec_dai_data *dai = NULL;
 
 	if (!w || !w->codec) {
@@ -5571,7 +5571,7 @@ static int taiko_codec_enable_slimtx(struct snd_soc_dapm_widget *w,
 	struct wcd9xxx *core;
 	struct snd_soc_codec *codec = w->codec;
 	struct taiko_priv *taiko_p = snd_soc_codec_get_drvdata(codec);
-	u32  ret = 0;
+	int  ret = 0;
 	struct wcd9xxx_codec_dai_data *dai;
 
 	core = dev_get_drvdata(codec->dev->parent);
@@ -5747,6 +5747,24 @@ static int taiko_codec_enable_anc_ear(struct snd_soc_dapm_widget *w,
 		break;
 	}
 	return ret;
+}
+
+static int taiko_codec_set_iir_gain(struct snd_soc_dapm_widget *w,
+	struct snd_kcontrol *kcontrol, int event)
+{
+	struct snd_soc_codec *codec = w->codec;
+	int value = 0;
+
+	switch (event) {
+	case SND_SOC_DAPM_POST_PMU:
+		value = snd_soc_read(codec, TAIKO_A_CDC_IIR1_GAIN_B1_CTL);
+		snd_soc_write(codec, TAIKO_A_CDC_IIR1_GAIN_B1_CTL, value);
+		break;
+	default:
+		pr_info("%s: event = %d not expected\n", __func__, event);
+		break;
+	}
+	return 0;
 }
 
 static const struct snd_soc_dapm_widget taiko_dapm_widgets[] = {
@@ -6191,6 +6209,9 @@ static const struct snd_soc_dapm_widget taiko_dapm_widgets[] = {
 		&iir1_inp1_mux,  taiko_codec_iir_mux_event,
 		SND_SOC_DAPM_POST_PMU | SND_SOC_DAPM_POST_PMD),
 
+	SND_SOC_DAPM_PGA_E("IIR1", TAIKO_A_CDC_CLK_SD_CTL, 0, 0, NULL, 0,
+		taiko_codec_set_iir_gain, SND_SOC_DAPM_POST_PMU),
+
 	SND_SOC_DAPM_MUX_E("IIR1 INP2 MUX", TAIKO_A_CDC_IIR1_GAIN_B2_CTL, 0, 0,
 		&iir1_inp2_mux,  taiko_codec_iir_mux_event,
 		SND_SOC_DAPM_POST_PMU | SND_SOC_DAPM_POST_PMD),
@@ -6203,7 +6224,6 @@ static const struct snd_soc_dapm_widget taiko_dapm_widgets[] = {
 		&iir1_inp4_mux,  taiko_codec_iir_mux_event,
 		SND_SOC_DAPM_POST_PMU | SND_SOC_DAPM_POST_PMD),
 
-	SND_SOC_DAPM_MIXER("IIR1", TAIKO_A_CDC_CLK_SD_CTL, 0, 0, NULL, 0),
 
 	SND_SOC_DAPM_MUX_E("IIR2 INP1 MUX", TAIKO_A_CDC_IIR2_GAIN_B1_CTL, 0, 0,
 		&iir2_inp1_mux,  taiko_codec_iir_mux_event,

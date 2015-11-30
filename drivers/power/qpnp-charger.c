@@ -260,6 +260,9 @@
 #define USB_MA_1600	(1600)
 #define USB_MA_1700	(1700)
 
+#define HTC_BATT_IRQ_STORM      (300)
+#define DETECT_IRQ_COUNT_TIME_PERIOD_MS      (60000)
+
 #define VIN_MIN_4400_MV	4400
 #define POWER_BANK_DROP_DURATION_MS	4000
 #define POWER_BANK_WA_DETECT_TIME_MS	4000
@@ -624,6 +627,10 @@ static bool iusb_limit_enable = false;
 static bool usbin_double_check_enable = false;
 static int thermal_mitigation;
 static void qpnp_chg_set_appropriate_battery_current(struct qpnp_chg_chip *chip);
+static uint64_t irq_storm_counter = 0;
+static uint64_t prev_irq_storm_counter = 0;
+static unsigned long irq_check_time_period = 0;
+static int is_vbus_irq_storm = 0;
 #define PM8941_CHG_I_MIN_MA		225
 #define PM8941_USB_I_LIMIT_MA		1000 
 #define PM8941_PHONE_I_LIMIT_MA		700 
@@ -1737,6 +1744,38 @@ qpnp_chg_regulator_batfet_set(struct qpnp_chg_chip *chip, bool enable)
 	return rc;
 }
 
+int pm8941_cable_irq_count(int *result, unsigned long count_irq_period)
+{
+	uint64_t irq_storm_counter_this_min = 0;
+
+	if (!the_chip){
+               pr_err("called before init\n");
+               return -EINVAL;
+	}
+
+	irq_check_time_period += count_irq_period;
+
+	if(irq_check_time_period < DETECT_IRQ_COUNT_TIME_PERIOD_MS){
+		
+		
+		
+	}else{
+		irq_storm_counter_this_min = irq_storm_counter - prev_irq_storm_counter;
+		if(irq_storm_counter_this_min >= HTC_BATT_IRQ_STORM){
+			is_vbus_irq_storm = 1;
+			pr_info("irq storm occurs!!\n");
+		}
+		
+		irq_check_time_period = 0;
+		
+		prev_irq_storm_counter = irq_storm_counter;
+	}
+	*result = is_vbus_irq_storm;
+	pr_info("irq_now: %llu, irq_prev: %llu, irq_this_min: %llu\n",irq_storm_counter,prev_irq_storm_counter,irq_storm_counter_this_min);
+
+	return 0;
+}
+
 #define RESUME_VDDMAX_WORK_MS	2000
 #define READJUST_VDDMAX_WORK_MS	30000
 #define VIN_MIN_COLLAPSE_CHECK_MS	350
@@ -1747,6 +1786,7 @@ qpnp_chg_usb_usbin_valid_irq_handler(int irq, void *_chip)
 	struct qpnp_chg_chip *chip = _chip;
 	int usb_present, host_mode;
 
+	irq_storm_counter = irq_storm_counter + 1;
 	usb_present = qpnp_chg_is_usb_chg_plugged_in(chip);
 	host_mode = qpnp_chg_is_otg_en_set(chip);
 
@@ -1993,7 +2033,6 @@ qpnp_chg_chgr_chg_fastchg_irq_handler(int irq, void *_chip)
 #endif
 
 	if (!chip->charging_disabled) {
-		is_batt_full_eoc_stop = false;
 		schedule_delayed_work(&chip->eoc_work,
 			msecs_to_jiffies(EOC_CHECK_PERIOD_MS));
 		pm_stay_awake(chip->dev);
@@ -2636,8 +2675,22 @@ qpnp_batt_external_power_changed(struct power_supply *psy)
 			if (((ret.intval / 1000) > USB_WALL_THRESHOLD_MA)
 					&& (charger_monitor ||
 					!chip->charger_monitor_checked)) {
-				qpnp_chg_iusbmax_set(chip,
-						USB_WALL_THRESHOLD_MA);
+					if (!qpnp_is_dc_higher_prio(chip))
+						qpnp_chg_idcmax_set(chip,
+							QPNP_CHG_I_MAX_MIN_100);
+					if (unlikely(ext_ovp_present)) {
+						qpnp_chg_iusbmax_set(chip,
+							OVP_USB_WALL_TRSH_MA);
+					} else if (unlikely(
+							ext_ovp_isns_present)) {
+						qpnp_chg_iusb_trim_set(chip,
+							chip->usb_trim_default);
+						qpnp_chg_iusbmax_set(chip,
+							IOVP_USB_WALL_TRSH_MA);
+					} else {
+						qpnp_chg_iusbmax_set(chip,
+							USB_WALL_THRESHOLD_MA);
+					}
 			} else {
 				qpnp_chg_iusbmax_set(chip, ret.intval / 1000);
 			}
@@ -3666,6 +3719,14 @@ static void handle_usb_present_change(struct qpnp_chg_chip *chip,
 			if (rc)
 				pr_err("Failed to set vbatdet=%d rc=%d\n",
 								QPNP_CHG_VBATDET_MAX_MV, rc);
+
+			
+			irq_storm_counter = 0;
+			prev_irq_storm_counter = 0;
+			
+			is_vbus_irq_storm = 0;
+			
+			irq_check_time_period = 0;
 		} else {
 			pm_stay_awake(chip->dev);
 			schedule_delayed_work(&chip->eoc_work,
@@ -5466,7 +5527,7 @@ qpnp_chg_input_current_settled(struct qpnp_chg_chip *chip)
 	if (!chip->ibat_calibration_enabled)
 		return 0;
 
-	if (chip->type != SMBB)
+	if (chip->type != SMBB && chip->type != SMBBP)
 		return 0;
 
 	rc = qpnp_chg_read(chip, &reg,
@@ -5486,6 +5547,17 @@ qpnp_chg_input_current_settled(struct qpnp_chg_chip *chip)
 		pr_debug("Improper ibat_trim value=%x setting to value=%x\n",
 						ibat_trim, IBAT_TRIM_MEAN);
 		ibat_trim = IBAT_TRIM_MEAN;
+
+		if (chip->type == SMBBP) {
+			rc = qpnp_chg_masked_write(chip,
+					chip->buck_base + SEC_ACCESS,
+					0xFF, 0xA5, 1);
+			if (rc) {
+				pr_err("failed to write SEC_ACCESS: %d\n", rc);
+				return rc;
+			}
+		}
+
 		rc = qpnp_chg_masked_write(chip,
 				chip->buck_base + BUCK_CTRL_TRIM3,
 				IBAT_TRIM_OFFSET_MASK, ibat_trim, 1);
@@ -5702,14 +5774,15 @@ qpnp_chg_regulator_boost_enable(struct regulator_dev *rdev)
 			pr_err("failed to write SEC_ACCESS rc=%d\n", rc);
 			return rc;
 		}
-
-		rc = qpnp_chg_masked_write(chip,
-			chip->usb_chgpth_base + COMP_OVR1,
-			0xFF,
-			0x2F, 1);
-		if (rc) {
-			pr_err("failed to write COMP_OVR1 rc=%d\n", rc);
-			return rc;
+		if (chip->type != SMBBP) {
+			rc = qpnp_chg_masked_write(chip,
+				chip->usb_chgpth_base + COMP_OVR1,
+				0xFF,
+				0x2F, 1);
+			if (rc) {
+				pr_err("failed to write COMP_OVR1 rc=%d\n", rc);
+				return rc;
+			}
 		}
 	}
 
@@ -5806,16 +5879,16 @@ qpnp_chg_regulator_boost_disable(struct regulator_dev *rdev)
 			pr_err("failed to write SEC_ACCESS rc=%d\n", rc);
 			return rc;
 		}
-
-		rc = qpnp_chg_masked_write(chip,
-			chip->usb_chgpth_base + COMP_OVR1,
-			0xFF,
-			0x00, 1);
-		if (rc) {
-			pr_err("failed to write COMP_OVR1 rc=%d\n", rc);
-			return rc;
+		if (chip->type != SMBBP) {
+			rc = qpnp_chg_masked_write(chip,
+				chip->usb_chgpth_base + COMP_OVR1,
+				0xFF,
+				0x00, 1);
+			if (rc) {
+				pr_err("failed to write COMP_OVR1 rc=%d\n", rc);
+				return rc;
+			}
 		}
-
 		usleep(1000);
 
 		qpnp_chg_usb_suspend_enable(chip, 0);
@@ -6186,8 +6259,10 @@ qpnp_eoc_work(struct work_struct *work)
 #endif
 		vbat_mv = get_prop_battery_voltage_now(chip) / 1000;
 
-		pr_info("ibat_ma = %d vbat_mv = %d term_current_ma = %d\n",
-				ibat_ma, vbat_mv, chip->term_current);
+		is_batt_full_eoc_stop = false;
+
+		pr_info("ibat_ma = %d vbat_mv = %d term_current_ma = %d, is_batt_full_eoc_stop = %d\n",
+				ibat_ma, vbat_mv, chip->term_current, is_batt_full_eoc_stop);
 
 		if (chip->enable_sw_idic_algo)
 			qpnp_batt_type_check(chip, vbat_mv, ibat_ma);
